@@ -1,0 +1,199 @@
+version: '3.8'
+services:
+  
+  # 1. DVWA (digininja/DVWA latest via vulnerables/web-dvwa)
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    ports:
+      - "11080:80"
+  
+  # 2. WebGoat (webgoat/webgoat:latest, port fix z env)
+  webgoat:
+    image: webgoat/webgoat:latest  
+    ports:
+      - "12080:8080"
+      - "12090:9090"  
+      # WebWolf
+    environment:
+      - TZ=Europe/Warsaw
+      - WEBGOAT_HOST=$IP
+
+  
+  # 3. bWAPP (hackersploit/bwapp-docker latest) + install
+  bwapp:
+    image: hackersploit/bwapp-docker:latest
+    ports:
+      - "13080:80"
+
+  
+  # 4. Juice Shop (bkimminich/juice-shop latest)
+  juice:
+    image: bkimminich/juice-shop:latest
+    ports:
+      - "14000:3000"
+
+  
+  # 5. Security Ninjas (csiege/security-ninjas latest)
+  # ninjas:
+  #   image: opendns/security-ninjas:latest
+  #   ports:
+  #     - "15080:80"
+
+  # 6. Mutillidae 
+  database:
+    container_name: database
+    image: docker.io/webpwnized/mutillidae:database
+    networks:
+      - datanet   
+
+  database_admin:
+    container_name: database_admin
+    depends_on:
+      - database
+    image: docker.io/webpwnized/mutillidae:database_admin
+    ports:
+      - 20081:80
+    networks:
+      - datanet   
+
+  www:
+    container_name: www
+    depends_on:
+      - database
+      - directory
+    image: docker.io/webpwnized/mutillidae:www
+    ports:
+      - 20080:80
+      - 20443:443
+    networks:
+      - datanet
+      - ldapnet
+
+  directory:
+    container_name: directory
+    image: docker.io/webpwnized/mutillidae:ldap
+    volumes:
+      - ldap_data:/var/lib/ldap
+      - ldap_config:/etc/ldap/slapd.d
+    ports:
+      - 20389:389
+    networks:
+      - ldapnet
+
+  directory_admin:
+    container_name: directory_admin
+    depends_on:
+      - directory
+    image: docker.io/webpwnized/mutillidae:ldap_admin
+    ports:
+      - 20082:80
+    networks:
+      - ldapnet
+
+  # 8. WebDAV (bytemark/webdav + metasploitable-like auth)
+  webdav:
+    image: bytemark/webdav:latest
+    ports:
+      - "980:80"  
+      # Dodatkowy port dla cadaver/PUT tests
+    environment:
+      AUTH_TYPE: Digest
+      USERNAME: admin
+      PASSWORD: admin
+    volumes:
+      - webdav_data:/var/lib/dav
+
+    # 9. VulnpreX – MySQL dla WordPressa
+  vulnprex-db:
+    image: mysql:5.7
+    container_name: vulnprex-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - vulnprex_db_data:/var/lib/mysql
+    networks:
+      - vulnprexnet
+    # DB nie musi być wystawiona na hosta – można usunąć ports,
+    # jeśli nie potrzebujesz łączyć się z MySQL z zewnątrz
+    # ports:
+    #   - "43306:3306"
+    command: 
+      - '--default-authentication-plugin=mysql_native_password'
+      - '--sql_mode='
+      - '--general-log=1'
+      - '--general-log-file=/var/lib/mysql/general.log'
+
+  # 10. VulnpreX – WordPress (aplikacja)
+  vulnprex-wordpress:
+    build:
+      context: ./VulnpreX       # katalog z repo VulnpreX
+      dockerfile: Dockerfile
+    container_name: vulnprex-app
+    restart: unless-stopped
+    depends_on:
+      - vulnprex-db
+    environment:
+      WORDPRESS_DB_HOST: vulnprex-db:3306
+      WORDPRESS_DB_NAME: ${DB_NAME}
+      WORDPRESS_DB_USER: ${DB_USER}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WORDPRESS_DEBUG: 'true'
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_DEBUG', true);
+        define('WP_DEBUG_LOG', true);
+        define('WP_DEBUG_DISPLAY', true);
+        define('SCRIPT_DEBUG', true);
+        define('SAVEQUERIES', true);
+        define('CONCATENATE_SCRIPTS', false);
+        /* Disable automatic updates */
+        define('AUTOMATIC_UPDATER_DISABLED', true);
+        define('WP_AUTO_UPDATE_CORE', false);
+        define('DISALLOW_FILE_MODS', false);
+        /* Allow direct filesystem access */
+        define('FS_METHOD', 'direct');
+        /* Enable XML-RPC (often exploited) */
+        ## add_filter('xmlrpc_enabled', '__return_true');
+    volumes:
+      - vulnprex_wp_data:/var/www/html
+      - ./VulnpreX/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+      - ./VulnpreX/logs:/var/log/apache2
+    ports:
+      - "45000:80"              # <— WordPress na porcie 45000 na hoście
+    networks:
+      - vulnprexnet
+
+  # 11. VulnpreX – phpMyAdmin
+  vulnprex-phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: vulnprex-phpmyadmin
+    restart: unless-stopped
+    depends_on:
+      - vulnprex-db
+    environment:
+      PMA_HOST: vulnprex-db
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      PMA_ARBITRARY: 1
+    ports:
+      - "45001:80"              # <— phpMyAdmin np. na 45001
+    networks:
+      - vulnprexnet
+
+volumes:
+  db_data:
+  wp_data:
+  webdav_data:
+  ldap_data:
+  ldap_config:
+  vulnprex_db_data:
+  vulnprex_wp_data:
+
+networks:
+  datanet:
+  ldapnet:
+  vulnprexnet:
+

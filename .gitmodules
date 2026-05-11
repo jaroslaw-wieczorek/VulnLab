@@ -1,0 +1,3 @@
+[submodule "VulnpreX"]
+	path = VulnpreX
+	url = https://github.com/jaroslaw-wieczorek/VulnpreX
