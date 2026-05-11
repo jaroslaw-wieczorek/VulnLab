@@ -119,8 +119,8 @@ services:
       - vulnprexnet
     # DB nie musi być wystawiona na hosta – można usunąć ports,
     # jeśli nie potrzebujesz łączyć się z MySQL z zewnątrz
-    # ports:
-    #   - "43306:3306"
+    ports:
+      - "43306:3306"
     command: 
       - '--default-authentication-plugin=mysql_native_password'
       - '--sql_mode='
